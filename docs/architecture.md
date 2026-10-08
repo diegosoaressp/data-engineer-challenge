@@ -91,6 +91,7 @@ Todas as colunas são VARCHAR/originais, mais `_source_file` e `_pipeline_run_id
 2. **raw e staging**: recriados por inteiro a cada execução (`CREATE OR REPLACE`). Sem estado entre execuções, não há duplicação possível.
 3. **marts**: numa **única transação**, `DELETE WHERE reference_date = D` seguido de `INSERT ... SELECT` em todos os fatos com escopo por data. `dim_merchant` é recriada a partir do staging. `audit_reconciliation_history` é a única tabela só acrescentada, com chave por `pipeline_run_id`.
 4. **Falha no meio**: os checks `block` rodam **antes** da transação dos marts. Se um falhar, nada é escrito e o run fica FAILED com o erro em `ops.pipeline_runs`. Uma exceção dentro da transação dispara ROLLBACK e os marts continuam como antes.
+   - **Padrão stage → check → publish**: os fatos são montados primeiro em tabelas temporárias. Os checks `block` (incluindo conservação e unicidade da chave) rodam sobre essas tabelas e gravam `ops.dq_results`. Só então a transação faz `DELETE` + `INSERT` a partir delas. Assim `ops.dq_results` nunca é gravado dentro de uma transação que pode sofrer rollback, e se um block falhar nenhum mart é tocado.
 5. **backfill**: chama `run` para cada data, em sequência. Cada data é atômica e independente.
 
 ## 4. Checagens de qualidade
@@ -134,7 +135,7 @@ Todas as colunas são VARCHAR/originais, mais `_source_file` e `_pipeline_run_id
 9. **Escrita idempotente dos marts**. *Teste*: duas execuções dão o mesmo resultado, e uma exceção injetada faz rollback sem alterar nada.
 10. **Agregados** (`fct_reconciliation_daily`, `fct_reconciliation_run`, `fct_financial_daily`, `dim_merchant`). *Teste*: os totais batem com o fato, e as visões `settled` e `created` somam o mesmo total.
 11. **Auditoria** só acrescentada. *Teste*: duas execuções geram dois snapshots e um único fato atual.
-12. **Checks block/alert restantes**, incluindo alerta de empate de `_timestamp` no CDC (mais de uma versão com o mesmo `transaction_id` e `_timestamp`, resolvida pelo desempate D > U > I). *Teste*: um por check, usando a amostra (10 duplicadas, 22 em formato BR, 20 FAILED liquidadas, run 99).
+12. **Checks block/alert restantes**, com um novo tipo de check **`metric`**: o SQL retorna um valor observado (escalar) em vez de linhas, e o check passa se o valor respeita o limite. Os alertas de taxa (ex.: MISMATCHED > 5%) gravam a taxa real em `ops.dq_results.observed_value`. Os checks de linhas (modelo da etapa 7) continuam valendo para os demais. Inclui alerta de empate de `_timestamp` no CDC (mais de uma versão com o mesmo `transaction_id` e `_timestamp`, resolvida pelo desempate D > U > I). *Teste*: um por check, usando a amostra (10 duplicadas, 22 em formato BR, 20 FAILED liquidadas, run 99).
     - **ALERT**: SETTLED posterior a REVERSED para o mesmo `transaction_id` (última versão SETTLED com `has_reversal` = true).
     - **BLOCK**: `amount_precision_loss` = true em `stg_settlements` (valor com mais de 2 casas decimais, ex.: `"1.234"`, que seria arredondado; o ponto sem vírgula é ambíguo entre milhar e decimal). *Teste*: CSV com `1.234` bloqueia; a amostra passa (0 ocorrências).
 13. **Backfill ponta a ponta com o gerador** (`--rows 10000 --days 30`, CSVs diários). *Teste*: nenhum block, distribuição de categorias próxima de 85/5/5/5 e nova execução sem diferença.
