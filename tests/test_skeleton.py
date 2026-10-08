@@ -49,3 +49,19 @@ def test_transaction_rolls_back_on_error(tmp_path):
     with transaction(con):
         con.execute("INSERT INTO t VALUES (2)")
     assert con.execute("SELECT count(*) FROM t").fetchone()[0] == 1
+
+
+def test_connection_timezone_is_utc(tmp_path):
+    from recon.db import connect
+
+    con = connect(tmp_path / "tz.duckdb")
+    try:
+        assert con.execute("SELECT current_setting('TimeZone')").fetchone()[0] == "UTC"
+        # TIMESTAMPTZ a partir de texto naive é UTC, sem depender do fuso da máquina
+        got = con.execute(
+            "SELECT strftime(CAST('2025-03-16 10:00:00' AS TIMESTAMPTZ) AT TIME ZONE 'UTC', "
+            "'%H:%M')"
+        ).fetchone()[0]
+        assert got == "10:00"
+    finally:
+        con.close()

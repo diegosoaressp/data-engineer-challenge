@@ -75,7 +75,7 @@ Todas as colunas são VARCHAR/originais, mais `_source_file` e `_pipeline_run_id
 | Tabela | Grão | Consumidor |
 |---|---|---|
 | `dim_merchant` | merchant, SCD2 | todos |
-| `fct_reconciliation` | (reference_date, processor, transaction_id) | Ops / Compliance. Recalculada: full outer join entre `stg_settlements` de D e `stg_transactions` (não deletadas) com `created_at::date ∈ [D-7, D]`; |dif| ≤ 0,01 → MATCHED. Guarda os valores, a diferença, a categoria, `settlement_status`, `has_reversal`, `internal_status`, `is_late_settlement`, `settled_date`, `created_date` e `source_category` (vinda do serviço). |
+| `fct_reconciliation` | (reference_date, processor, transaction_id) | Ops / Compliance. Recalculada: full outer join entre `stg_settlements` de D e `stg_transactions` (não deletadas) (todas, sem filtro de data; `in_window` marca `created_at::date ∈ [D-7, D]`); |dif| ≤ 0,01 → MATCHED. Guarda os valores, a diferença, a categoria, `settlement_status`, `has_reversal`, `internal_status`, `is_late_settlement`, `settled_date`, `created_date` e `source_category` (vinda do serviço). |
 | `fct_reconciliation_daily` | (reference_date, processor) | Ops: contagem e valor por categoria, taxa de MISMATCHED, taxa de REVERSED, divergência com o serviço e contagem de alertas do dia. |
 | `fct_reconciliation_run` | run do serviço | Ops / Compliance: status, duração, total declarado × linhas no arquivo × resultados. |
 | `fct_financial_daily` | (date, date_basis, currency, merchant_id) | CFO: volume interno por status, volume liquidado, volume revertido e líquido. `date_basis` ∈ {`settled`, `created`}, com **`settled` como padrão** nas queries. Sem câmbio: os valores ficam separados por moeda. |
@@ -104,7 +104,7 @@ Todas as colunas são VARCHAR/originais, mais `_source_file` e `_pipeline_run_id
 - Moeda fora de {BRL, USD, EUR}, ou status fora dos domínios (SETTLED/REVERSED; COMPLETED/PENDING/FAILED).
 - `settled_at` impossível de interpretar.
 - Chave `(reference_date, processor, transaction_id)` duplicada no fato.
-- Conservação: settlements deduplicados = MATCHED + MISMATCHED + UNRECONCILED_PROCESSOR, e transações internas na janela = MATCHED + MISMATCHED + UNRECONCILED_INTERNAL.
+- Conservação: settlements deduplicados = MATCHED + MISMATCHED + UNRECONCILED_PROCESSOR, e transações internas com `in_window` = MATCHED + MISMATCHED + UNRECONCILED_INTERNAL (internas fora da janela só contam se casaram com o CSV).
 
 **ALERT** (o pipeline publica e o alerta fica em `ops.dq_results`):
 - Linhas duplicadas idênticas no CSV.
@@ -137,6 +137,7 @@ Todas as colunas são VARCHAR/originais, mais `_source_file` e `_pipeline_run_id
 11. **Auditoria** só acrescentada. *Teste*: duas execuções geram dois snapshots e um único fato atual.
 12. **Checks block/alert restantes**, com um novo tipo de check **`metric`**: o SQL retorna um valor observado (escalar) em vez de linhas, e o check passa se o valor respeita o limite. Os alertas de taxa (ex.: MISMATCHED > 5%) gravam a taxa real em `ops.dq_results.observed_value`. Os checks de linhas (modelo da etapa 7) continuam valendo para os demais. Inclui alerta de empate de `_timestamp` no CDC (mais de uma versão com o mesmo `transaction_id` e `_timestamp`, resolvida pelo desempate D > U > I). *Teste*: um por check, usando a amostra (10 duplicadas, 22 em formato BR, 20 FAILED liquidadas, run 99).
     - **ALERT**: SETTLED posterior a REVERSED para o mesmo `transaction_id` (última versão SETTLED com `has_reversal` = true).
+    - **BLOCK**: `stg_settlements` deve vir de exatamente 1 `_source_file` (`count(DISTINCT _source_file) = 1`). `fct_reconciliation` não filtra o arquivo de D no SQL e depende de `raw.settlements` conter só o CSV de D. *Teste*: staging com 2 arquivos bloqueia.
     - **BLOCK**: `amount_precision_loss` = true em `stg_settlements` (valor com mais de 2 casas decimais, ex.: `"1.234"`, que seria arredondado; o ponto sem vírgula é ambíguo entre milhar e decimal). *Teste*: CSV com `1.234` bloqueia; a amostra passa (0 ocorrências).
 13. **Backfill ponta a ponta com o gerador** (`--rows 10000 --days 30`, CSVs diários). *Teste*: nenhum block, distribuição de categorias próxima de 85/5/5/5 e nova execução sem diferença.
 14. **Queries de exemplo** em `queries/`. *Teste*: cada uma roda sem erro contra o banco gerado no teste 13.
@@ -152,7 +153,7 @@ Todas as colunas são VARCHAR/originais, mais `_source_file` e `_pipeline_run_id
 
 1. A categoria oficial é a recalculada. A do serviço é guardada para comparação.
 2. A chave do estado atual das transações é `transaction_id`, com desempate por `_timestamp` e depois `id`. Linhas com Op D saem do matching. Em empate total (mesmo `transaction_id`, `_timestamp` e `id`), vale a ordem do ciclo de vida **D > U > I**: o delete é o último evento.
-3. A janela é `created_at::date ∈ [D-7, D]` em UTC. Transações FAILED/PENDING entram no matching, e o status vira atributo e alerta.
+3. A janela `created_at::date ∈ [D-7, D]` (UTC) define o **escopo de `UNRECONCILED_INTERNAL`**, não o matching. O matching é por `transaction_id` contra todas as internas não deletadas: liquidação cuja interna está fora da janela (ex.: tardia, D-10) é classificada por valor/moeda (MATCHED/MISMATCHED), com `in_window = false` e `is_late_settlement = true`, como faz o serviço. Interna fora da janela sem par no CSV não entra no fato. `UNRECONCILED_PROCESSOR` só vale quando a transação não existe internamente (ou foi deletada). Transações FAILED/PENDING entram no matching, e o status vira atributo e alerta.
 4. `amount` é sempre positivo, e REVERSED entra com sinal negativo em `signed_amount`.
 5. Valores ficam em moeda original, sem câmbio.
 6. Para a amostra, a data de referência vem do usuário (`--reference-date` + `--settlement-file`). A data não é inferida a partir do conteúdo do arquivo.
@@ -166,3 +167,5 @@ Todas as colunas são VARCHAR/originais, mais `_source_file` e `_pipeline_run_id
 - Alerta de anomalia de volume (comparar com a média móvel de 7 dias).
 - Raw/staging incrementais e particionados por data, em vez de recriar tudo a cada execução (pensando em ~5M/dia).
 - Controle de arquivos já ingeridos (hash) quando o raw passar a ser acumulado.
+- Atribuição por processor: hoje as linhas só internas de `fct_reconciliation` recebem o `processor` passado ao build (válido com um único processor). Com 2+ processadores será preciso atribuir cada transação interna ao seu processor (campo na origem ou regra de roteamento).
+- Escala do lado interno de `fct_reconciliation`: hoje o join varre todas as transações internas não deletadas, sem filtro de data. Para ~5M/dia, restringir o lado interno aos `transaction_id` do CSV de D mais as internas da janela `[D-7, D]`.

@@ -10,7 +10,10 @@ from recon import config
 def connect(path: Path | str | None = None) -> duckdb.DuckDBPyConnection:
     target = Path(path) if path is not None else config.warehouse_path()
     target.parent.mkdir(parents=True, exist_ok=True)
-    return duckdb.connect(str(target))
+    con = duckdb.connect(str(target))
+    # janela, datas e TIMESTAMPTZ naive são sempre interpretados em UTC
+    con.execute("SET TimeZone = 'UTC'")
+    return con
 
 
 @contextmanager
