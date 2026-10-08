@@ -1,0 +1,5 @@
+# Normalize line endings: LF everywhere (code runs in a Linux container)
+* text=auto eol=lf
+
+# Source data is provided as-is by the challenge: never convert
+docs/sample-data/** -text
