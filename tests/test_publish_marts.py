@@ -1,3 +1,4 @@
+import uuid
 from datetime import date
 
 import pytest
@@ -74,7 +75,7 @@ def _build(con, ref=D, processor="paysettler"):
 
 def _run(con, ref=D):
     _build(con, ref)
-    return publish_marts(con, ref, "paysettler")
+    return publish_marts(con, ref, "paysettler", run_id=uuid.uuid4().hex)
 
 
 def test_rerun_is_idempotent(con):
@@ -105,7 +106,7 @@ def test_two_processors_same_date_do_not_overwrite_each_other(con):
     )
     _run(con)
     _build(con, D, "other")
-    publish_marts(con, D, "other")
+    publish_marts(con, D, "other", run_id=uuid.uuid4().hex)
     rows = _snapshot(con)
     assert {(r[1], r[10]) for r in rows} == {("paysettler", "MATCHED"), ("other", "MISMATCHED")}
     assert len(rows) == 4
@@ -129,7 +130,7 @@ def test_injected_exception_rolls_back_every_mart(con, monkeypatch):
         ),
     )
     with pytest.raises(Exception, match="missing_table"):
-        publish_marts(con, D, "paysettler")
+        publish_marts(con, D, "paysettler", run_id=uuid.uuid4().hex)
     assert _snapshot(con) == before
 
 
@@ -139,7 +140,7 @@ def test_constraint_violation_mid_publish_rolls_back(con):
     _build(con, D, "paysettler")
     con.execute(f"UPDATE {marts.FCT_RECONCILIATION_STAGE} SET category = NULL")
     with pytest.raises(Exception, match="NOT NULL"):
-        publish_marts(con, D, "paysettler")
+        publish_marts(con, D, "paysettler", run_id=uuid.uuid4().hex)
     assert _snapshot(con) == before
     # a conexão segue utilizável após o rollback
     assert _run(con)["marts.fct_reconciliation"] == 2
@@ -148,12 +149,69 @@ def test_constraint_violation_mid_publish_rolls_back(con):
 def test_empty_stage_clears_old_rows_of_the_scope(con):
     _run(con)
     _build(con, D, "other")  # outro processor, também publicado
-    publish_marts(con, D, "other")
+    publish_marts(con, D, "other", run_id=uuid.uuid4().hex)
     assert len(_snapshot(con)) == 4  # 2 de cada processor
     con.execute("DELETE FROM staging.stg_settlements")
     con.execute("DELETE FROM staging.stg_transactions")
     _build(con, D, "paysettler")
     assert con.execute(f"SELECT count(*) FROM {marts.FCT_RECONCILIATION_STAGE}").fetchone()[0] == 0
-    assert publish_marts(con, D, "paysettler")["marts.fct_reconciliation"] == 0
+    assert (
+        publish_marts(con, D, "paysettler", run_id=uuid.uuid4().hex)["marts.fct_reconciliation"]
+        == 0
+    )
     remaining = {r[1] for r in _snapshot(con)}
     assert remaining == {"other"}  # só (D, paysettler) foi limpo
+
+
+AUDIT = "marts.audit_reconciliation_history"
+
+
+def _publish_audited(con, run_id, ref=D):
+    _build(con, ref)
+    return publish_marts(con, ref, "paysettler", run_id=run_id)
+
+
+def test_two_runs_give_two_audit_snapshots_and_one_current_fact(con):
+    assert _publish_audited(con, "run-1")[AUDIT] == 2
+    assert _publish_audited(con, "run-2")[AUDIT] == 2
+    assert len(_snapshot(con)) == 2  # fato atual não duplica
+    runs = con.execute(
+        f"SELECT pipeline_run_id, count(*) FROM {AUDIT} GROUP BY 1 ORDER BY 1"
+    ).fetchall()
+    assert runs == [("run-1", 2), ("run-2", 2)]
+
+
+def test_audit_keeps_history_of_changed_results(con):
+    _publish_audited(con, "run-1")
+    con.execute(
+        "UPDATE staging.stg_settlements SET amount = 99.00 WHERE transaction_id = ?", [_tid(1)]
+    )
+    _publish_audited(con, "run-2")
+    history = dict(
+        con.execute(
+            f"SELECT pipeline_run_id, category FROM {AUDIT} WHERE transaction_id = ?", [_tid(1)]
+        ).fetchall()
+    )
+    assert history == {"run-1": "MATCHED", "run-2": "MISMATCHED"}
+
+
+def test_audit_rolls_back_with_failed_publish(con, monkeypatch):
+    _publish_audited(con, "run-1")
+    _build(con, D, "paysettler")
+    monkeypatch.setattr(
+        marts,
+        "PUBLISH_TARGETS",
+        (
+            *marts.PUBLISH_TARGETS,
+            PublishTarget("marts.missing_table", marts.FCT_RECONCILIATION_STAGE, ()),
+        ),
+    )
+    with pytest.raises(Exception, match="missing_table"):
+        publish_marts(con, D, "paysettler", run_id="run-2")
+    assert con.execute(f"SELECT DISTINCT pipeline_run_id FROM {AUDIT}").fetchall() == [("run-1",)]
+
+
+def test_publish_requires_run_id(con):
+    _build(con)
+    with pytest.raises(TypeError):
+        publish_marts(con, D, "paysettler")

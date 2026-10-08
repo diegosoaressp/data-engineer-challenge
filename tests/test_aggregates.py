@@ -1,4 +1,5 @@
 import json
+import uuid
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -102,7 +103,7 @@ def con(tmp_path):
 def _publish(con):
     build_fct_reconciliation(con, D, "paysettler")
     build_aggregates(con, D)
-    return publish_marts(con, D, "paysettler")
+    return publish_marts(con, D, "paysettler", run_id=uuid.uuid4().hex)
 
 
 def test_daily_totals_match_the_fact(con):

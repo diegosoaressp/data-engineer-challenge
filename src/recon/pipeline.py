@@ -89,6 +89,6 @@ def _execute(
     # agregados derivam do stage já validado; só tabelas temporárias, marts intocados
     rows.update(build_aggregates(con, reference_date))
 
-    for mart, count in publish_marts(con, reference_date, processor).items():
+    for mart, count in publish_marts(con, reference_date, processor, run_id=run_id).items():
         rows[mart] = count
     log.info("marts published", extra={"rows_by_stage": rows})

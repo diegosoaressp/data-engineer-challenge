@@ -10,6 +10,7 @@ from recon.db import transaction
 
 SQL_DIR = Path(__file__).parent.parent / "sql" / "marts"
 FCT_RECONCILIATION_STAGE = "fct_reconciliation_stage"
+AUDIT_TABLE = "marts.audit_reconciliation_history"
 
 
 @dataclass(frozen=True)
@@ -96,7 +97,10 @@ def build_aggregates(con: duckdb.DuckDBPyConnection, reference_date: date) -> di
 
 
 def publish_marts(
-    con: duckdb.DuckDBPyConnection, reference_date: date, processor: str
+    con: duckdb.DuckDBPyConnection,
+    reference_date: date,
+    processor: str,
+    run_id: str,
 ) -> dict[str, int]:
     """Replace the rows of (`reference_date`, `processor`) in every mart from its stage table.
 
@@ -105,6 +109,9 @@ def publish_marts(
     (DELETE + INSERT per mart): any exception rolls back all marts, so a mid-run failure
     leaves the previous state intact and a re-run never duplicates rows. Call only after
     block checks passed on the stage tables.
+    `run_id` is required (fail closed): the same transaction also appends the published fct_reconciliation rows to
+    `marts.audit_reconciliation_history` (append-only; never deleted), so a rollback leaves
+    no audit snapshot either.
     Returns rows written per mart for the scope.
     """
     values = {"reference_date": reference_date, "processor": processor}
@@ -118,4 +125,17 @@ def publish_marts(
             written[target.mart] = con.execute(
                 f"SELECT count(*) FROM {target.mart} WHERE {where}", params
             ).fetchone()[0]
+        written[AUDIT_TABLE] = _append_audit(con, run_id)
     return written
+
+
+def _append_audit(con: duckdb.DuckDBPyConnection, run_id: str) -> int:
+    """Append a snapshot of the fct_reconciliation stage. Never deletes or updates."""
+    con.execute(
+        f"INSERT INTO {AUDIT_TABLE} BY NAME "
+        f"SELECT ? AS pipeline_run_id, now() AS audited_at, * FROM {FCT_RECONCILIATION_STAGE}",
+        [run_id],
+    )
+    return con.execute(
+        f"SELECT count(*) FROM {AUDIT_TABLE} WHERE pipeline_run_id = ?", [run_id]
+    ).fetchone()[0]

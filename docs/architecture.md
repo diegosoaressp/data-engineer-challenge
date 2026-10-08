@@ -80,7 +80,7 @@ Todas as colunas são VARCHAR/originais, mais `_source_file` e `_pipeline_run_id
 | `fct_reconciliation_run` | run do serviço | Ops / Compliance: status, duração, total declarado × linhas no arquivo × resultados. |
 | `fct_financial_daily` | (reference_date, processor, settled_date, currency, merchant_id) | CFO: só liquidações, por data de liquidação: volume liquidado, revertido e líquido, e contagens. Escopo por `reference_date` e `processor` (cada liquidação vem de um único CSV). Sem câmbio: valores separados por moeda. |
 | `fct_internal_volume_daily` | transaction_id | CFO: volume interno, uma linha por transação não deletada de `stg_transactions` (valor, moeda, status, `created_date`). **Reconstrução total a cada run**, sem escopo por data nem janela: a mesma transação nunca é contada duas vezes. Agregar por `created_date`/moeda/status nas queries. |
-| `audit_reconciliation_history` | (pipeline_run_id, reference_date, transaction_id) | Compliance: snapshot de cada execução, só acrescentado. |
+| `audit_reconciliation_history` | (pipeline_run_id, reference_date, processor, transaction_id) | Compliance: snapshot de cada execução, só acrescentado. |
 
 ### ops: observabilidade
 - `ops.pipeline_runs`: run_id, reference_date, status (RUNNING/SUCCESS/FAILED), started/finished, duração e contagem de linhas por etapa, settlement_file, git sha e erro.
@@ -177,3 +177,4 @@ Todas as colunas são VARCHAR/originais, mais `_source_file` e `_pipeline_run_id
 - Controle de arquivos já ingeridos (hash) quando o raw passar a ser acumulado.
 - Atribuição por processor: hoje as linhas só internas de `fct_reconciliation` recebem o `processor` passado ao build (válido com um único processor). Com 2+ processadores será preciso atribuir cada transação interna ao seu processor (campo na origem ou regra de roteamento).
 - Escala do lado interno de `fct_reconciliation`: hoje o join varre todas as transações internas não deletadas, sem filtro de data. Para ~5M/dia, restringir o lado interno aos `transaction_id` do CSV de D mais as internas da janela `[D-7, D]`.
+- Volume da auditoria: `audit_reconciliation_history` copia o fato inteiro a cada run (só acrescentado). Para ~5M/dia, particionar por mês e definir política de retenção (ex.: arquivar partições antigas em Parquet).

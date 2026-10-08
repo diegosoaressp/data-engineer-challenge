@@ -117,7 +117,7 @@ def test_publish_is_last_step_failed_run_leaves_marts_intact(wh, monkeypatch):
     before = _marts(wh)
     seen = {}
 
-    def boom(con, ref, processor):
+    def boom(con, ref, processor, run_id):
         # no momento do publish, checks (inclusive alert) desta execução já foram gravados
         seen["alerts"] = con.execute(
             "SELECT count(*) FROM ops.dq_results WHERE severity = 'alert' AND run_id NOT IN "
@@ -146,3 +146,29 @@ def test_cli_run_returns_exit_codes_and_logs_with_run_context(wh, tmp_path, monk
     assert last["reference_date"] == "2025-03-16"
     assert last["run_id"]
     assert last["level"] == "ERROR"
+
+
+def test_pipeline_reruns_append_audit_snapshots_but_keep_one_fact(wh):
+    first = _run(wh)
+    facts = _marts(wh)
+    second = _run(wh)
+    assert _marts(wh) == facts
+    per_run = dict(
+        _query(
+            wh,
+            "SELECT pipeline_run_id, count(*) FROM marts.audit_reconciliation_history GROUP BY 1",
+        )
+    )
+    assert per_run == {first: len(facts), second: len(facts)}
+
+
+def test_failed_run_leaves_no_audit_snapshot(wh, tmp_path):
+    _run(wh)
+    before = _query(wh, "SELECT count(*) FROM marts.audit_reconciliation_history")
+    with pytest.raises(Exception, match="no settlement file"):
+        con = connect(wh)
+        try:
+            run_pipeline(D, source_dir=tmp_path, con=con)
+        finally:
+            con.close()
+    assert _query(wh, "SELECT count(*) FROM marts.audit_reconciliation_history") == before
