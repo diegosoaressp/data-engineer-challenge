@@ -19,7 +19,7 @@ MARTS = (
     "fct_reconciliation_daily",
     "fct_reconciliation_run",
     "fct_financial_daily",
-    "fct_internal_volume_daily",
+    "fct_internal_transactions",
     "dim_merchant",
 )
 
@@ -183,31 +183,31 @@ def test_financial_daily_has_only_settlements_by_settled_date(con):
     assert fact == sum(r[0] + r[1] for r in rows.values())
 
 
-def test_internal_volume_is_one_row_per_transaction_equal_to_staging(con):
+def test_internal_transactions_is_one_row_per_transaction_equal_to_staging(con):
     _publish(con)
     assert con.execute(
         "SELECT count(*), count(DISTINCT transaction_id), sum(amount) "
-        "FROM marts.fct_internal_volume_daily"
+        "FROM marts.fct_internal_transactions"
     ).fetchone() == (5, 5, Decimal("46.00"))
     assert con.execute("SELECT sum(amount) FROM staging.stg_transactions").fetchone()[0] == Decimal(
         "46.00"
     )
     assert con.execute(
-        "SELECT created_date FROM marts.fct_internal_volume_daily WHERE transaction_id = ?",
+        "SELECT created_date FROM marts.fct_internal_transactions WHERE transaction_id = ?",
         [_tid(3)],
     ).fetchone() == (date(2025, 3, 14),)
 
 
-def test_internal_volume_ignores_deleted_and_is_fully_rebuilt(con):
+def test_internal_transactions_ignores_deleted_and_is_fully_rebuilt(con):
     _publish(con)
     con.execute(
         "UPDATE staging.stg_transactions SET is_deleted = true WHERE transaction_id = ?", [_tid(1)]
     )
     _publish(con)
     assert con.execute(
-        "SELECT count(*) FROM marts.fct_internal_volume_daily WHERE transaction_id = ?", [_tid(1)]
+        "SELECT count(*) FROM marts.fct_internal_transactions WHERE transaction_id = ?", [_tid(1)]
     ).fetchone() == (0,)
-    assert con.execute("SELECT count(*) FROM marts.fct_internal_volume_daily").fetchone() == (4,)
+    assert con.execute("SELECT count(*) FROM marts.fct_internal_transactions").fetchone() == (4,)
 
 
 def test_dim_merchant_keeps_scd2_and_is_replaced_not_duplicated(con):

@@ -1,5 +1,5 @@
 -- Liquidações (CFO) a partir do stage do fato: só linhas com lado processor, por data de
--- liquidação, em moeda original. O volume interno vem de fct_internal_volume_daily.
+-- liquidação, em moeda original. O volume interno vem de fct_internal_transactions.
 CREATE OR REPLACE TEMP TABLE fct_financial_daily_stage AS
 SELECT
     reference_date,

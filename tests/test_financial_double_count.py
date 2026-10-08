@@ -46,7 +46,7 @@ def test_volumes_are_not_counted_once_per_reference_date(gen_dir, tmp_path):
 
         internal = con.execute(
             "SELECT sum(amount), count(*), count(DISTINCT transaction_id) "
-            "FROM marts.fct_internal_volume_daily"
+            "FROM marts.fct_internal_transactions"
         ).fetchone()
         staging = con.execute(
             "SELECT sum(amount), count(*) FROM staging.stg_transactions WHERE NOT is_deleted"

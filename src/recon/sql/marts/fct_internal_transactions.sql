@@ -1,6 +1,6 @@
 -- Volume interno: estado atual de cada transação não deletada, direto do staging.
 -- Substituição completa no publish (sem escopo por data).
-CREATE OR REPLACE TEMP TABLE fct_internal_volume_daily_stage AS
+CREATE OR REPLACE TEMP TABLE fct_internal_transactions_stage AS
 SELECT
     transaction_id,
     merchant_id,

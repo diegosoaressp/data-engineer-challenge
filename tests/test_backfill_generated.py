@@ -15,7 +15,7 @@ SNAPSHOT_TABLES = [
     "fct_reconciliation_daily",
     "fct_reconciliation_run",
     "fct_financial_daily",
-    "fct_internal_volume_daily",
+    "fct_internal_transactions",
     "dim_merchant",
 ]
 

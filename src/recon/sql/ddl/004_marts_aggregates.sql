@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS marts.fct_reconciliation_run (
 
 -- CFO: liquidações (SETTLED/REVERSED) por data de liquidação, em moeda original (sem câmbio).
 -- Escopo por reference_date e processor: cada liquidação vem de um único CSV, sem repetição
--- entre datas. O volume interno fica em fct_internal_volume_daily.
+-- entre datas. O volume interno fica em fct_internal_transactions.
 CREATE TABLE IF NOT EXISTS marts.fct_financial_daily (
     reference_date    DATE NOT NULL,
     processor         VARCHAR NOT NULL,
@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS marts.fct_financial_daily (
 -- CFO: volume interno, uma linha por transação não deletada (estado atual do staging).
 -- Reconstrução total a cada run: não depende de reference_date nem da janela, então a mesma
 -- transação nunca é contada duas vezes. Agregar por created_date/currency/status nas queries.
-CREATE TABLE IF NOT EXISTS marts.fct_internal_volume_daily (
+CREATE TABLE IF NOT EXISTS marts.fct_internal_transactions (
     transaction_id  VARCHAR PRIMARY KEY,
     merchant_id     VARCHAR,
     currency        VARCHAR,

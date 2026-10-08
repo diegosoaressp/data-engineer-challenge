@@ -34,7 +34,7 @@ PUBLISH_TARGETS: tuple[PublishTarget, ...] = (
     PublishTarget(
         "marts.fct_financial_daily", "fct_financial_daily_stage", ("reference_date", "processor")
     ),
-    PublishTarget("marts.fct_internal_volume_daily", "fct_internal_volume_daily_stage", ()),
+    PublishTarget("marts.fct_internal_transactions", "fct_internal_transactions_stage", ()),
     PublishTarget(
         "marts.fct_reconciliation_run", "fct_reconciliation_run_stage", ("reference_date",)
     ),
@@ -45,7 +45,7 @@ PUBLISH_TARGETS: tuple[PublishTarget, ...] = (
 AGGREGATE_SQL = (
     "fct_reconciliation_daily",
     "fct_financial_daily",
-    "fct_internal_volume_daily",
+    "fct_internal_transactions",
     "fct_reconciliation_run",
     "dim_merchant",
 )
