@@ -112,6 +112,7 @@ Todas as colunas são VARCHAR/originais, mais `_source_file` e `_pipeline_run_id
 - **Liquidação de transação interna com status FAILED.**
 - `merchant_id` nulo nas transações, ou merchant inexistente em `dim_merchant`.
 - Replay de CDC: mais de uma linha I para o mesmo `transaction_id`.
+- Empate de `_timestamp` no CDC: versões distintas do mesmo `transaction_id` com o mesmo `_timestamp` (desempatadas por D > U > I).
 - REVERSED órfão (sem par interno).
 - Liquidação tardia (`settled_at − created_at` > 7 dias).
 - `reconciliation_results` com `run_id` órfão.
@@ -133,7 +134,7 @@ Todas as colunas são VARCHAR/originais, mais `_source_file` e `_pipeline_run_id
 9. **Escrita idempotente dos marts**. *Teste*: duas execuções dão o mesmo resultado, e uma exceção injetada faz rollback sem alterar nada.
 10. **Agregados** (`fct_reconciliation_daily`, `fct_reconciliation_run`, `fct_financial_daily`, `dim_merchant`). *Teste*: os totais batem com o fato, e as visões `settled` e `created` somam o mesmo total.
 11. **Auditoria** só acrescentada. *Teste*: duas execuções geram dois snapshots e um único fato atual.
-12. **Checks block/alert restantes**. *Teste*: um por check, usando a amostra (10 duplicadas, 22 em formato BR, 20 FAILED liquidadas, run 99).
+12. **Checks block/alert restantes**, incluindo alerta de empate de `_timestamp` no CDC (mais de uma versão com o mesmo `transaction_id` e `_timestamp`, resolvida pelo desempate D > U > I). *Teste*: um por check, usando a amostra (10 duplicadas, 22 em formato BR, 20 FAILED liquidadas, run 99).
 13. **Backfill ponta a ponta com o gerador** (`--rows 10000 --days 30`, CSVs diários). *Teste*: nenhum block, distribuição de categorias próxima de 85/5/5/5 e nova execução sem diferença.
 14. **Queries de exemplo** em `queries/`. *Teste*: cada uma roda sem erro contra o banco gerado no teste 13.
 15. **README**: seções "Entrega" e Parte 3.
@@ -147,7 +148,7 @@ Todas as colunas são VARCHAR/originais, mais `_source_file` e `_pipeline_run_id
 ## Premissas
 
 1. A categoria oficial é a recalculada. A do serviço é guardada para comparação.
-2. A chave do estado atual das transações é `transaction_id`, com desempate por `_timestamp` e depois `id`. Linhas com Op D saem do matching.
+2. A chave do estado atual das transações é `transaction_id`, com desempate por `_timestamp` e depois `id`. Linhas com Op D saem do matching. Em empate total (mesmo `transaction_id`, `_timestamp` e `id`), vale a ordem do ciclo de vida **D > U > I**: o delete é o último evento.
 3. A janela é `created_at::date ∈ [D-7, D]` em UTC. Transações FAILED/PENDING entram no matching, e o status vira atributo e alerta.
 4. `amount` é sempre positivo, e REVERSED entra com sinal negativo em `signed_amount`.
 5. Valores ficam em moeda original, sem câmbio.
