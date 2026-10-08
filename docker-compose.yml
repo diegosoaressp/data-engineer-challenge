@@ -3,6 +3,7 @@ services:
     build: .
     environment:
       - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app/src
       - DATA_PATH=/app/docs/sample-data
       - LOG_LEVEL=INFO
       - ENVIRONMENT=local
@@ -10,4 +11,6 @@ services:
       - ./docs/sample-data:/app/docs/sample-data:ro
       - ./scripts:/app/scripts
       - ./tests:/app/tests
+      - ./src:/app/src
+      - ./queries:/app/queries
     command: tail -f /dev/null
