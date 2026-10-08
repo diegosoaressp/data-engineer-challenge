@@ -16,7 +16,7 @@ from recon.ingest.settlement import (
 from recon.logging import RunLogger, get_logger
 from recon.quality.runner import record_block, run_checks
 from recon.runs import fail_run, finish_run, set_settlement_file, start_run
-from recon.transform.marts import build_fct_reconciliation, publish_marts
+from recon.transform.marts import build_aggregates, build_fct_reconciliation, publish_marts
 from recon.transform.staging import build_cdc_staging, build_settlement_staging
 
 
@@ -86,6 +86,8 @@ def _execute(
     run_checks(con, run_id, reference_date, log, layer="staging")
     rows["stage.fct_reconciliation"] = build_fct_reconciliation(con, reference_date, processor)
     run_checks(con, run_id, reference_date, log, layer="marts")
+    # agregados derivam do stage já validado; só tabelas temporárias, marts intocados
+    rows.update(build_aggregates(con, reference_date))
 
     for mart, count in publish_marts(con, reference_date, processor).items():
         rows[mart] = count

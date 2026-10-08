@@ -78,7 +78,8 @@ Todas as colunas são VARCHAR/originais, mais `_source_file` e `_pipeline_run_id
 | `fct_reconciliation` | (reference_date, processor, transaction_id) | Ops / Compliance. Recalculada: full outer join entre `stg_settlements` de D e `stg_transactions` (não deletadas) (todas, sem filtro de data; `in_window` marca `created_at::date ∈ [D-7, D]`); |dif| ≤ 0,01 → MATCHED. Guarda os valores, a diferença, a categoria, `settlement_status`, `has_reversal`, `internal_status`, `is_late_settlement`, `settled_date`, `created_date` e `source_category` (vinda do serviço). |
 | `fct_reconciliation_daily` | (reference_date, processor) | Ops: contagem e valor por categoria, taxa de MISMATCHED, taxa de REVERSED, divergência com o serviço e contagem de alertas do dia. |
 | `fct_reconciliation_run` | run do serviço | Ops / Compliance: status, duração, total declarado × linhas no arquivo × resultados. |
-| `fct_financial_daily` | (date, date_basis, currency, merchant_id) | CFO: volume interno por status, volume liquidado, volume revertido e líquido. `date_basis` ∈ {`settled`, `created`}, com **`settled` como padrão** nas queries. Sem câmbio: os valores ficam separados por moeda. |
+| `fct_financial_daily` | (reference_date, processor, settled_date, currency, merchant_id) | CFO: só liquidações, por data de liquidação: volume liquidado, revertido e líquido, e contagens. Escopo por `reference_date` e `processor` (cada liquidação vem de um único CSV). Sem câmbio: valores separados por moeda. |
+| `fct_internal_volume_daily` | transaction_id | CFO: volume interno, uma linha por transação não deletada de `stg_transactions` (valor, moeda, status, `created_date`). **Reconstrução total a cada run**, sem escopo por data nem janela: a mesma transação nunca é contada duas vezes. Agregar por `created_date`/moeda/status nas queries. |
 | `audit_reconciliation_history` | (pipeline_run_id, reference_date, transaction_id) | Compliance: snapshot de cada execução, só acrescentado. |
 
 ### ops: observabilidade
@@ -89,7 +90,7 @@ Todas as colunas são VARCHAR/originais, mais `_source_file` e `_pipeline_run_id
 
 1. **CLI**: `recon run --reference-date D`. Rodar de novo para a mesma data substitui o resultado anterior. Não há lock: o DuckDB permite um único processo escrevendo no arquivo.
 2. **raw e staging**: recriados por inteiro a cada execução (`CREATE OR REPLACE`). Sem estado entre execuções, não há duplicação possível.
-3. **marts**: numa **única transação**, `DELETE WHERE reference_date = D` seguido de `INSERT ... SELECT` em todos os fatos com escopo por data. `dim_merchant` é recriada a partir do staging. `audit_reconciliation_history` é a única tabela só acrescentada, com chave por `pipeline_run_id`.
+3. **marts**: numa **única transação**, `DELETE WHERE reference_date = D` seguido de `INSERT ... SELECT` em todos os fatos com escopo por data. `dim_merchant` e `fct_internal_volume_daily` são recriadas por inteiro a partir do staging (substituição completa, na mesma transação). `audit_reconciliation_history` é a única tabela só acrescentada, com chave por `pipeline_run_id`.
 4. **Falha no meio**: os checks `block` rodam **antes** da transação dos marts. Se um falhar, nada é escrito e o run fica FAILED com o erro em `ops.pipeline_runs`. Uma exceção dentro da transação dispara ROLLBACK e os marts continuam como antes.
    - **Padrão stage → check → publish**: os fatos são montados primeiro em tabelas temporárias. Os checks `block` (incluindo conservação e unicidade da chave) rodam sobre essas tabelas e gravam `ops.dq_results`. Só então a transação faz `DELETE` + `INSERT` a partir delas. Assim `ops.dq_results` nunca é gravado dentro de uma transação que pode sofrer rollback, e se um block falhar nenhum mart é tocado.
    - **Invariante: run `FAILED` ⇒ marts intocados.** Todos os checks (block e alert) rodam sobre staging e stage **antes** do publish, e `publish_marts` é o último passo antes de `finish_run`. Falha em qualquer etapa anterior, ou exceção dentro do publish (ROLLBACK), deixa os marts como estavam. Todo motivo de bloqueio fica em `ops.dq_results`, inclusive arquivo de liquidação ausente/vazio (`settlement_file_missing`, block, camada `raw`).
@@ -135,11 +136,12 @@ Todas as colunas são VARCHAR/originais, mais `_source_file` e `_pipeline_run_id
 8. **`fct_reconciliation`**. *Teste*: dif 0,01 → MATCHED, 0,02 → MISMATCHED, bordas D−7 e D, REVERSED órfão, interna deletada ignorada.
 9. **Escrita idempotente dos marts**. *Teste*: duas execuções dão o mesmo resultado, e uma exceção injetada faz rollback sem alterar nada.
 9b. **Orquestração (`pipeline.py` + CLI `run`)**: raw → staging → checks (block + alert) → stage → checks (block + alert) → `publish_marts` (último passo), com `ops.pipeline_runs` e `ops.dq_results`. *Teste*: um block que falha deixa o run FAILED em `ops.pipeline_runs`, o motivo registrado em `ops.dq_results` e os marts intactos.
-10. **Agregados** (`fct_reconciliation_daily`, `fct_reconciliation_run`, `fct_financial_daily`, `dim_merchant`). *Teste*: os totais batem com o fato, e as visões `settled` e `created` somam o mesmo total.
+10. **Agregados** (`fct_reconciliation_daily`, `fct_reconciliation_run`, `fct_financial_daily`, `fct_internal_volume_daily`, `dim_merchant`). *Teste*: os totais batem com o fato; com CSVs diferentes em 3 `reference_date` de janelas sobrepostas, a soma de `fct_internal_volume_daily` = soma de `stg_transactions` e a de `fct_financial_daily` = soma das liquidações dos CSVs.
 11. **Auditoria** só acrescentada. *Teste*: duas execuções geram dois snapshots e um único fato atual.
 12. **Checks block/alert restantes**, com um novo tipo de check **`metric`**: o SQL retorna um valor observado (escalar) em vez de linhas, e o check passa se o valor respeita o limite. Os alertas de taxa (ex.: MISMATCHED > 5%) gravam a taxa real em `ops.dq_results.observed_value`. Os checks de linhas (modelo da etapa 7) continuam valendo para os demais. Inclui alerta de empate de `_timestamp` no CDC (mais de uma versão com o mesmo `transaction_id` e `_timestamp`, resolvida pelo desempate D > U > I). *Teste*: um por check, usando a amostra (10 duplicadas, 22 em formato BR, 20 FAILED liquidadas, run 99).
     - **ALERT**: SETTLED posterior a REVERSED para o mesmo `transaction_id` (última versão SETTLED com `has_reversal` = true).
     - **BLOCK**: `stg_settlements` deve vir de exatamente 1 `_source_file` (`count(DISTINCT _source_file) = 1`). `fct_reconciliation` não filtra o arquivo de D no SQL e depende de `raw.settlements` conter só o CSV de D. *Teste*: staging com 2 arquivos bloqueia.
+    - **BLOCK**: conservação do diário: `fct_reconciliation_daily_stage` deve bater com `fct_reconciliation_stage` (soma de `total_count` = linhas do fato; contagens e valores por categoria iguais, por moeda). *Teste*: stage do diário adulterado bloqueia.
     - **BLOCK**: `amount_precision_loss` = true em `stg_settlements` (valor com mais de 2 casas decimais, ex.: `"1.234"`, que seria arredondado; o ponto sem vírgula é ambíguo entre milhar e decimal). *Teste*: CSV com `1.234` bloqueia; a amostra passa (0 ocorrências).
 13. **Backfill ponta a ponta com o gerador** (`--rows 10000 --days 30`, CSVs diários). *Teste*: nenhum block, distribuição de categorias próxima de 85/5/5/5 e nova execução sem diferença.
 14. **Queries de exemplo** em `queries/`. *Teste*: cada uma roda sem erro contra o banco gerado no teste 13.
@@ -162,6 +164,10 @@ Todas as colunas são VARCHAR/originais, mais `_source_file` e `_pipeline_run_id
 
 7. No CSV, se o mesmo `transaction_id` tiver versões distintas com o mesmo `settled_at`, ganha `REVERSED`, depois o maior `processor_reference`, depois o maior `amount`.
 8. Vale a última versão por `settled_at`, mesmo que seja SETTLED e exista um REVERSED mais antigo. `has_reversal` fica true e o caso gera alerta (etapa 12).
+
+## Limites
+
+- **Sem migrations.** O DDL usa `CREATE TABLE IF NOT EXISTS`: mudança de schema em tabela existente não é aplicada. Após qualquer mudança de schema, apague `data/warehouse.duckdb` e reprocesse (`recon backfill`).
 
 ## Evoluções (vão para o README, fora do escopo)
 
