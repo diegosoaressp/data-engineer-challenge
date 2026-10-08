@@ -1,0 +1,17 @@
+# VCS and tooling
+.git
+.claude
+.gitattributes
+
+# Local environments and caches (Windows venv is useless in Linux)
+.venv
+__pycache__/
+**/__pycache__/
+.pytest_cache
+.ruff_cache
+
+# Secrets: never bake into the image
+.env
+
+# Local data outputs
+*.duckdb
