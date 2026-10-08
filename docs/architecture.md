@@ -148,6 +148,17 @@ Todas as colunas são VARCHAR/originais, mais `_source_file` e `_pipeline_run_id
 14. **Queries de exemplo** em `queries/`. *Teste*: cada uma roda sem erro contra o banco gerado no teste 13.
 15. **README**: seções "Entrega" e Parte 3.
 
+## Resultados medidos (etapa 13)
+
+Dataset do gerador: `--rows 10000 --days 30 --merchants 100 --seed 42`, backfill de 2025-03-01 até o último CSV diário.
+
+- **Concordância com o gabarito**: 100% (10.000 de 10.000 transações) entre a categoria recalculada e `reconciliation_results` do gerador, com dados sujos e com `--clean`, sem nenhuma divergência. Comparação por `transaction_id`; os REVERSED órfãos plantados (30 no sujo) não têm linha no gabarito e ficam de fora. Coberto por `tests/test_agreement_generated.py` (2.000 linhas, 10 dias, seed fixa, sujo e clean).
+- **Mistura de categorias** (uma categoria final por transação, dados sujos): MATCHED 85,4% / MISMATCHED 4,8% / UNRECONCILED_PROCESSOR 5,0% / UNRECONCILED_INTERNAL 4,9%, contra 85/5/5/5 do gerador.
+- **Blocks**: nenhum nas datas com CSV. Com dados sujos, as únicas falhas são `settlement_file_missing` em 4 datas sem arquivo (2025-04-02, 04-05, 04-10, 04-13): só as liquidações tardias (D+8 a D+15) chegam depois de 04-01, e o gerador não escreve CSV para data sem linhas. Com `--clean` nenhuma data falta.
+- **Idempotência**: rodar o backfill duas vezes deixa todos os marts idênticos (contagem e hash do conteúdo); só `audit_reconciliation_history` cresce.
+- **Desempenho**: cerca de **0,9 s por `reference_date`** (45 datas em 38,8 s no sujo; 32 datas em 29,6 s no clean).
+- **Custo dominante**: reler o CDC inteiro a cada run (raw e staging são recriados por execução). Cada run reprocessa todas as ~9,5 mil linhas de transações, mesmo que só o CSV de D mude (soma de `raw.transactions` nas 82 runs bem-sucedidas: ~780 mil linhas, para ~9,5 mil linhas de CSV). É o ponto a atacar na escala de ~5M/dia (ver Evoluções).
+
 ## Verificação
 
 - `uv run pytest` e `uv run ruff check .` verdes em cada etapa.
