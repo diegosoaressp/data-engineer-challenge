@@ -80,3 +80,4 @@ Inputs live in `docs/sample-data/` (~1k internal txns, ~500 settlements). Read `
 - New logic requires a test. Done = `uv run pytest` and `docker compose exec pipeline ruff check .` passing.
 - After changing `pyproject.toml` or `Dockerfile`, rebuild with `docker compose up -d --build`.
 - Multi-file changes: propose a plan first, wait for approval.
+- Run `ruff format` only on files you created or changed in the current task, never on the whole repo.
