@@ -1,7 +1,5 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## What this repo is
 
 A Senior Data Engineer technical challenge (README is in Portuguese). The repo ships only the scaffolding: sample data, a synthetic data generator and its tests. The deliverable to build is:
@@ -11,6 +9,8 @@ A Senior Data Engineer technical challenge (README is in Portuguese). The repo s
 3. **Architecture write-ups** (production design, troubleshooting scenario, scaling to ~5M txn/day).
 
 Mandatory stack: Python 3.12+, **DuckDB** for processing, local filesystem storage, must run via `docker compose up`. Final README must fill the "Entrega" sections (how to run, assumptions, architecture, extensibility for a second settlement processor, design limits, production differences, AI tools used). Prefer complete and clean over feature-rich.
+
+Full pipeline design and implementation order: `docs/architecture.md`.
 
 ## Commands
 
@@ -31,11 +31,17 @@ Locally (uv, `uv.lock` present):
 uv sync --extra dev
 uv run pytest                                                   # all tests
 uv run pytest tests/test_generate_sample_data.py::test_seed_is_deterministic   # single test
-uv run ruff check . && uv run ruff format .                     # line-length 100, py312
 uv run python scripts/generate_sample_data.py --rows 10000 --days 30 --out /tmp/gen
 ```
 
-Note: `docker-compose.yml` only mounts `docs/sample-data` (read-only), `scripts/` and `tests/`. Any new source package (e.g. `src/`) or output directory must be added as a volume or the image rebuilt (`make up`) for changes to appear in the container. `DATA_PATH`, `LOG_LEVEL`, `ENVIRONMENT` env vars are set there (see `.env.example`).
+Lint runs in Docker (Windows Smart App Control blocks the local `ruff.exe`):
+
+```bash
+docker compose exec pipeline ruff check .
+docker compose exec pipeline ruff format .
+```
+
+Note: `docker-compose.yml` only mounts `docs/sample-data` (read-only), `scripts/` and `tests/`. Any new source package (e.g. `src/`) or output directory must be added as a volume or the image rebuilt (`make up`) for changes to appear in the container. Files copied into the image (e.g. `pyproject.toml`) only update after a rebuild. `DATA_PATH`, `LOG_LEVEL`, `ENVIRONMENT` env vars are set there (see `.env.example`).
 
 ## Source data — key facts
 
@@ -71,5 +77,6 @@ Inputs live in `docs/sample-data/` (~1k internal txns, ~500 settlements). Read `
 ## Guardrails
 - Never modify `docs/sample-data/` or `scripts/generate_sample_data.py` unless asked.
 - Never read or print `.env`.
-- New logic requires a test. Done = `uv run pytest` and `uv run ruff check .` passing.
+- New logic requires a test. Done = `uv run pytest` and `docker compose exec pipeline ruff check .` passing.
+- After changing `pyproject.toml` or `Dockerfile`, rebuild with `docker compose up -d --build`.
 - Multi-file changes: propose a plan first, wait for approval.
