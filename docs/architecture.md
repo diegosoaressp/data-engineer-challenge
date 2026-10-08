@@ -135,6 +135,8 @@ Todas as colunas são VARCHAR/originais, mais `_source_file` e `_pipeline_run_id
 10. **Agregados** (`fct_reconciliation_daily`, `fct_reconciliation_run`, `fct_financial_daily`, `dim_merchant`). *Teste*: os totais batem com o fato, e as visões `settled` e `created` somam o mesmo total.
 11. **Auditoria** só acrescentada. *Teste*: duas execuções geram dois snapshots e um único fato atual.
 12. **Checks block/alert restantes**, incluindo alerta de empate de `_timestamp` no CDC (mais de uma versão com o mesmo `transaction_id` e `_timestamp`, resolvida pelo desempate D > U > I). *Teste*: um por check, usando a amostra (10 duplicadas, 22 em formato BR, 20 FAILED liquidadas, run 99).
+    - **ALERT**: SETTLED posterior a REVERSED para o mesmo `transaction_id` (última versão SETTLED com `has_reversal` = true).
+    - **BLOCK**: `amount_precision_loss` = true em `stg_settlements` (valor com mais de 2 casas decimais, ex.: `"1.234"`, que seria arredondado; o ponto sem vírgula é ambíguo entre milhar e decimal). *Teste*: CSV com `1.234` bloqueia; a amostra passa (0 ocorrências).
 13. **Backfill ponta a ponta com o gerador** (`--rows 10000 --days 30`, CSVs diários). *Teste*: nenhum block, distribuição de categorias próxima de 85/5/5/5 e nova execução sem diferença.
 14. **Queries de exemplo** em `queries/`. *Teste*: cada uma roda sem erro contra o banco gerado no teste 13.
 15. **README**: seções "Entrega" e Parte 3.
@@ -153,6 +155,9 @@ Todas as colunas são VARCHAR/originais, mais `_source_file` e `_pipeline_run_id
 4. `amount` é sempre positivo, e REVERSED entra com sinal negativo em `signed_amount`.
 5. Valores ficam em moeda original, sem câmbio.
 6. Para a amostra, a data de referência vem do usuário (`--reference-date` + `--settlement-file`). A data não é inferida a partir do conteúdo do arquivo.
+
+7. No CSV, se o mesmo `transaction_id` tiver versões distintas com o mesmo `settled_at`, ganha `REVERSED`, depois o maior `processor_reference`, depois o maior `amount`.
+8. Vale a última versão por `settled_at`, mesmo que seja SETTLED e exista um REVERSED mais antigo. `has_reversal` fica true e o caso gera alerta (etapa 12).
 
 ## Evoluções (vão para o README, fora do escopo)
 

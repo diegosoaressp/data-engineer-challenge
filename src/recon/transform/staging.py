@@ -30,3 +30,9 @@ def build_cdc_staging(con: duckdb.DuckDBPyConnection) -> dict[str, int]:
             0
         ]
     return counts
+
+
+def build_settlement_staging(con: duckdb.DuckDBPyConnection) -> int:
+    """Recreate staging.stg_settlements from raw.settlements. Returns row count."""
+    con.execute((SQL_DIR / "stg_settlements.sql").read_text(encoding="utf-8"))
+    return con.execute("SELECT count(*) FROM staging.stg_settlements").fetchone()[0]
