@@ -6,6 +6,8 @@ DATA_PATH = Path(os.environ.get("DATA_PATH", "data"))
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
 ENVIRONMENT = os.environ.get("ENVIRONMENT", "local")
 
+SOURCE_DIR = Path(os.environ.get("SOURCE_DIR", "docs/sample-data"))
+
 WAREHOUSE_FILE = "warehouse.duckdb"
 
 TOLERANCE = Decimal("0.01")

@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from recon import cli
+from recon import cli, config
 from recon.db import connect, transaction
 from recon.logging import get_logger
 
@@ -32,8 +32,9 @@ def test_log_has_run_id_and_reference_date():
     assert record["rows"] == 3
 
 
-def test_run_command_emits_structured_log(capsys):
-    assert cli.main(["run", "--reference-date", "2025-03-16"]) == 0
+def test_run_command_emits_structured_log(capsys, tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "DATA_PATH", tmp_path)
+    assert cli.main(["run", "--reference-date", "2025-03-16", "--source-dir", str(tmp_path)]) == 1
     record = json.loads(capsys.readouterr().err.strip().splitlines()[-1])
     assert record["reference_date"] == "2025-03-16"
     assert record["run_id"]

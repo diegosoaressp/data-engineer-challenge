@@ -36,6 +36,19 @@ def _record(
     )  # fmt: skip
 
 
+def record_block(
+    con: duckdb.DuckDBPyConnection,
+    run_id: str,
+    reference_date: date,
+    name: str,
+    layer: str,
+    detail: str,
+) -> None:
+    """Record a failed block that is detected outside the SQL checks (e.g. missing file)."""
+    check = Check(name, layer, "block", sql="SELECT 1")
+    _record(con, run_id, reference_date, CheckResult(check, False, 1.0, [detail]))
+
+
 def run_checks(
     con: duckdb.DuckDBPyConnection,
     run_id: str,
@@ -43,6 +56,7 @@ def run_checks(
     log: RunLogger,
     checks: Sequence[Check] = CHECKS,
     layer: str | None = None,
+    severity: str | None = None,
 ) -> list[CheckResult]:
     """Run every check, persist all results to ops.dq_results, then raise if any block failed.
 
@@ -52,6 +66,8 @@ def run_checks(
     results: list[CheckResult] = []
     for check in checks:
         if layer is not None and check.layer != layer:
+            continue
+        if severity is not None and check.severity != severity:
             continue
         result = evaluate(con, check)
         _record(con, run_id, reference_date, result)

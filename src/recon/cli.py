@@ -1,9 +1,9 @@
 import argparse
-import uuid
+import sys
 from datetime import date, timedelta
 from pathlib import Path
 
-from recon.logging import get_logger
+from recon.pipeline import run_pipeline
 
 
 def _parse_date(value: str) -> date:
@@ -29,21 +29,32 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _run_one(reference_date: date, args: argparse.Namespace) -> None:
-    run_id = uuid.uuid4().hex
-    log = get_logger(run_id, reference_date.isoformat())
-    log.info("run started (skeleton: pipeline not implemented yet)")
+def _run_one(reference_date: date, args: argparse.Namespace) -> bool:
+    """Run one date. Failures are already logged and recorded by the pipeline."""
+    try:
+        run_pipeline(
+            reference_date,
+            source_dir=args.source_dir,
+            settlement_file=getattr(args, "settlement_file", None),
+        )
+    except Exception:  # noqa: BLE001 - já logado e gravado em ops.pipeline_runs; backfill segue
+        return False
+    return True
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "run":
-        _run_one(args.reference_date, args)
-    else:
-        if args.end < args.start:
-            build_parser().error("--end must be >= --start")
-        day = args.start
-        while day <= args.end:
-            _run_one(day, args)
-            day += timedelta(days=1)
+        return 0 if _run_one(args.reference_date, args) else 1
+    if args.end < args.start:
+        build_parser().error("--end must be >= --start")
+    failed = []
+    day = args.start
+    while day <= args.end:  # cada data é atômica e independente
+        if not _run_one(day, args):
+            failed.append(day.isoformat())
+        day += timedelta(days=1)
+    if failed:
+        print(f"backfill: {len(failed)} date(s) failed: {', '.join(failed)}", file=sys.stderr)
+        return 1
     return 0

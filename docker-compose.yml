@@ -4,11 +4,13 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app/src
-      - DATA_PATH=/app/docs/sample-data
+      - DATA_PATH=/app/data
+      - SOURCE_DIR=/app/docs/sample-data
       - LOG_LEVEL=INFO
       - ENVIRONMENT=local
     volumes:
       - ./docs/sample-data:/app/docs/sample-data:ro
+      - ./data:/app/data
       - ./scripts:/app/scripts
       - ./tests:/app/tests
       - ./src:/app/src

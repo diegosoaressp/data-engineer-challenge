@@ -35,6 +35,10 @@ def start_run(
     )
 
 
+def set_settlement_file(con: duckdb.DuckDBPyConnection, run_id: str, path: str) -> None:
+    con.execute("UPDATE ops.pipeline_runs SET settlement_file = ? WHERE run_id = ?", [path, run_id])
+
+
 def finish_run(
     con: duckdb.DuckDBPyConnection,
     run_id: str,
