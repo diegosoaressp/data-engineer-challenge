@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS marts.fct_reconciliation_daily (
     unreconciled_processor_amount   DECIMAL(18, 2) NOT NULL,
     unreconciled_internal_amount    DECIMAL(18, 2) NOT NULL,
     mismatched_difference_amount    DECIMAL(18, 2) NOT NULL,
-    mismatch_rate                   DECIMAL(9, 6) NOT NULL,
+    mismatch_rate                   DECIMAL(9, 6),
     settlement_count                BIGINT NOT NULL,
     reversed_count                  BIGINT NOT NULL,
     reversed_rate                   DECIMAL(9, 6),

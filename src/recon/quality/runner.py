@@ -3,6 +3,7 @@ from datetime import date
 
 import duckdb
 
+from recon import config
 from recon.logging import RunLogger
 from recon.quality.checks import BlockingCheckFailed, Check, CheckResult
 from recon.quality.registry import CHECKS
@@ -10,10 +11,17 @@ from recon.quality.registry import CHECKS
 SAMPLE_SIZE = 5
 
 
-def evaluate(con: duckdb.DuckDBPyConnection, check: Check) -> CheckResult:
-    observed = con.execute(f"SELECT count(*) FROM ({check.sql}) AS q").fetchone()[0]
+def evaluate(con: duckdb.DuckDBPyConnection, check: Check, reference_date: date) -> CheckResult:
+    sql = check.sql.replace("{reference_date}", reference_date.isoformat()).replace(
+        "{window_days}", str(int(config.WINDOW_DAYS))
+    )
+    if check.kind == "metric":
+        value = con.execute(f"SELECT * FROM ({sql}) AS q").fetchone()[0]
+        observed = None if value is None else float(value)
+        return CheckResult(check, observed is None or observed <= check.threshold, observed, [])
+    observed = con.execute(f"SELECT count(*) FROM ({sql}) AS q").fetchone()[0]
     sample = [
-        str(r[0]) for r in con.execute(f"SELECT * FROM ({check.sql}) AS q LIMIT {SAMPLE_SIZE}").fetchall()
+        str(r[0]) for r in con.execute(f"SELECT * FROM ({sql}) AS q LIMIT {SAMPLE_SIZE}").fetchall()
     ]  # fmt: skip
     return CheckResult(check, observed <= check.threshold, float(observed), sample)
 
@@ -69,7 +77,7 @@ def run_checks(
             continue
         if severity is not None and check.severity != severity:
             continue
-        result = evaluate(con, check)
+        result = evaluate(con, check, reference_date)
         _record(con, run_id, reference_date, result)
         results.append(result)
         if not result.passed:

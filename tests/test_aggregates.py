@@ -144,7 +144,7 @@ def test_daily_rates_and_service_divergence(con):
     }
     # BRL: 1 MATCHED, 1 MISMATCHED(5.00), 1 MATCHED reversed, 1 UNRECONCILED_INTERNAL
     mismatch_rate, reversed_count, reversed_rate, compared, diverged, diff = rows["BRL"]
-    assert mismatch_rate == Decimal("0.25")
+    assert mismatch_rate == Decimal("0.333333")  # 1 / (2 MATCHED + 1 MISMATCHED)
     assert (reversed_count, reversed_rate) == (1, Decimal("0.333333"))
     assert diff == Decimal("5.00")
     # serviço só tem resultado MATCHED p/ 1 e 2 (3 deletado): 2 comparadas, 1 divergente

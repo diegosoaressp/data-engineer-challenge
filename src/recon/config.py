@@ -15,6 +15,11 @@ WINDOW_DAYS = 7
 MISMATCH_RATE_ALERT = 0.05
 PROCESSORS = ("paysettler",)
 
+# Domínios válidos (checks block de domínio em quality/registry.py)
+CURRENCIES = ("BRL", "USD", "EUR")
+SETTLEMENT_STATUSES = ("SETTLED", "REVERSED")
+TRANSACTION_STATUSES = ("COMPLETED", "PENDING", "FAILED")
+
 
 def warehouse_path() -> Path:
     return DATA_PATH / WAREHOUSE_FILE

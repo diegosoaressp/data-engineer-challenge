@@ -43,7 +43,9 @@ SELECT
     CAST(unreconciled_processor_amount AS DECIMAL(18, 2)) AS unreconciled_processor_amount,
     CAST(unreconciled_internal_amount AS DECIMAL(18, 2)) AS unreconciled_internal_amount,
     CAST(mismatched_difference_amount AS DECIMAL(18, 2)) AS mismatched_difference_amount,
-    CAST(mismatched_count AS DOUBLE) / total_count AS mismatch_rate,
+    -- MISMATCHED / (MATCHED + MISMATCHED): só os pares efetivamente comparados; NULL sem pares
+    CAST(CAST(mismatched_count AS DOUBLE) / nullif(matched_count + mismatched_count, 0)
+        AS DECIMAL(9, 6)) AS mismatch_rate,
     settlement_count,
     reversed_count,
     CASE WHEN settlement_count > 0

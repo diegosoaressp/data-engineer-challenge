@@ -112,6 +112,35 @@ def test_missing_settlement_file_fails_run_and_is_recorded(wh, tmp_path):
     assert rows == [("settlement_file_missing", "block", False, "raw")]
 
 
+def test_missing_parquet_records_block_and_fails_run(wh, tmp_path):
+    src = tmp_path / "src"  # sem parquets
+    src.mkdir()
+    con = connect(wh)
+    try:
+        with pytest.raises(FileNotFoundError):
+            run_pipeline(D, source_dir=src, settlement_file=SAMPLE_CSV, con=con)
+    finally:
+        con.close()
+    assert _query(wh, "SELECT status FROM ops.pipeline_runs") == [("FAILED",)]
+    rows = _query(wh, "SELECT check_name, severity, passed, layer, sample_keys FROM ops.dq_results")
+    assert [r[:4] for r in rows] == [("raw_cdc_load_failed", "block", False, "raw")]
+    assert "transactions_batch_*.parquet" in rows[0][4]
+
+
+def test_unreadable_csv_records_block_and_fails_run(wh, tmp_path):
+    bad = tmp_path / "bad.csv"
+    bad.write_bytes(b"a,b\n\xff\xfe,1\n")  # UTF-8 inválido: o DuckDB não consegue ler
+    con = connect(wh)
+    try:
+        with pytest.raises(Exception):  # noqa: B017 - erro de leitura do DuckDB
+            run_pipeline(D, source_dir=SAMPLE, settlement_file=bad, con=con)
+    finally:
+        con.close()
+    assert _query(wh, "SELECT status FROM ops.pipeline_runs") == [("FAILED",)]
+    rows = _query(wh, "SELECT check_name, severity, passed, layer FROM ops.dq_results")
+    assert rows == [("raw_settlement_read_failed", "block", False, "raw")]
+
+
 def test_publish_is_last_step_failed_run_leaves_marts_intact(wh, monkeypatch):
     _run(wh)
     before = _marts(wh)

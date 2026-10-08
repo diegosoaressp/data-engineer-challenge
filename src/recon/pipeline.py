@@ -69,14 +69,27 @@ def _execute(
     log: RunLogger,
     rows: dict[str, int],
 ) -> None:
+    # Toda falha na carga raw grava um block em ops.dq_results antes de o run virar FAILED.
     try:
         path = locate_settlement_file(reference_date, source_dir, settlement_file, processor)
         set_settlement_file(con, run_id, str(path))
-        rows.update(load_raw_cdc(con, source_dir, run_id))
-        rows["raw.settlements"] = load_raw_settlements(con, path, run_id, processor)
     except SettlementFileError as exc:
         record_block(con, run_id, reference_date, "settlement_file_missing", "raw", str(exc))
         raise
+    try:
+        rows.update(load_raw_cdc(con, source_dir, run_id))
+    except Exception as exc:
+        record_block(con, run_id, reference_date, "raw_cdc_load_failed", "raw", str(exc))
+        raise
+    try:
+        rows["raw.settlements"] = load_raw_settlements(con, path, run_id, processor)
+    except SettlementFileError as exc:  # arquivo vazio
+        record_block(con, run_id, reference_date, "settlement_file_missing", "raw", str(exc))
+        raise
+    except Exception as exc:
+        record_block(con, run_id, reference_date, "raw_settlement_read_failed", "raw", str(exc))
+        raise
+    run_checks(con, run_id, reference_date, log, layer="raw")
     rows.update(build_cdc_staging(con))
     rows["staging.stg_settlements"] = build_settlement_staging(con)
     log.info("staging built", extra={"rows_by_stage": rows})
@@ -88,6 +101,7 @@ def _execute(
     run_checks(con, run_id, reference_date, log, layer="marts")
     # agregados derivam do stage já validado; só tabelas temporárias, marts intocados
     rows.update(build_aggregates(con, reference_date))
+    run_checks(con, run_id, reference_date, log, layer="aggregates")
 
     for mart, count in publish_marts(con, reference_date, processor, run_id=run_id).items():
         rows[mart] = count
