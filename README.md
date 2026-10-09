@@ -554,14 +554,13 @@ _O que simplificou? O que a versão de produção precisaria?_
 
 _Quais ferramentas de IA usou e para quê? Encorajamos o uso de IA — queremos entender como você a utiliza como ferramenta de trabalho._
 
-<!-- revisar: Diego -->
 
 **Ferramentas**
 
 - **Claude Code**, com Opus para planejar e Sonnet para executar. O plano está em `docs/architecture.md`, e a configuração do projeto em `CLAUDE.md` e `.claude/` (inclui o comando `/step`, que executa uma etapa do plano, roda `pytest` e `ruff` e para sem commitar).
 - **Plugin Caveman**, para respostas curtas no terminal e menos tokens.
 - **Subagentes revisores**, usados nas etapas 8 e 12 (`fct_reconciliation` e o registro de checks) para revisar o diff com contexto limpo.
-- **Claude (app)**, como instrutor e revisor de arquitetura: discuti decisões antes de pedir a implementação.
+- **Claude (app)**, como revisor de arquitetura: discuti decisões antes de pedir a implementação.
 
 **Como trabalhei.** Uma etapa por vez, cada uma com seu teste, um commit por etapa e `pytest` + `ruff` como critério de pronto. A IA propôs e implementou; eu li o diff de cada etapa, rejeitei ou ajustei o que não concordava e decidi o que entrava.
 
